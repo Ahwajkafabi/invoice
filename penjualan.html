@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>INVOICE PENJUALAN TOKO BETE</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+<style>
+body { font-family: Arial; background:#f1f2f6; padding:20px;}
+.container { max-width:1000px; margin:auto; background:#fff; padding:20px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.1);} 
+input, textarea, select { padding:8px; margin:5px; width:220px;}
+textarea { height:60px;}
+button { padding:10px; cursor:pointer; border:none; background:#0984e3; color:#fff; border-radius:5px;}
+button:hover { background:#74b9ff;}
+table { width:100%; margin-top:10px; border-collapse: collapse;}
+th, td { padding:10px; border-bottom:1px solid #ddd;}
+.invoice-preview { margin-top:30px; padding:20px; border:1px solid #ccc;}
+.right { text-align:right;}
+.status-paid { color:green; font-weight:bold;}
+.status-unpaid { color:red; font-weight:bold;}
+.history { margin-top:30px;}
+.item-row input { width:120px;}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h2>📄 Invoice Penjualan</h2>
+
+<input type="file" id="logoUpload"><br>
+<input type="text" id="company" placeholder="Nama Perusahaan"><br>
+
+<input type="text" id="customer" placeholder="Nama Customer"><br>
+<textarea id="address" placeholder="Alamat Customer"></textarea><br>
+
+<input type="text" id="phone" placeholder="No WhatsApp (628...) "><br>
+
+<input type="text" id="invoiceNo" readonly placeholder="No Invoice"><br>
+<input type="date" id="date"><br>
+
+<h3>💳 Metode Pembayaran</h3>
+<select id="payment" onchange="togglePayment()">
+<option value="Cash">Cash</option>
+<option value="Transfer">Transfer</option>
+</select><br>
+
+<div id="transferFields" style="display:none;">
+<input type="text" id="bank" placeholder="Nama Bank"><br>
+<input type="text" id="rekening" placeholder="No Rekening"><br>
+<input type="text" id="atasNama" placeholder="Atas Nama"><br>
+</div>
+
+<select id="status">
+<option value="Belum Lunas">Belum Lunas</option>
+<option value="Lunas">Lunas</option>
+</select>
+
+<h3>Item</h3>
+<table id="items">
+<tr>
+<th>Nama</th>
+<th>Qty</th>
+<th>Harga</th>
+<th>Total</th>
+</tr>
+</table>
+
+<button onclick="addItem()">+ Tambah Item</button>
+
+<br><br>
+
+<input type="number" id="tax" placeholder="Pajak (%)" value="0">
+<input type="number" id="discount" placeholder="Diskon (%)" value="0">
+
+<br><br>
+
+<button onclick="generateInvoice()">Generate Invoice</button>
+<button onclick="downloadPDF()">Download PDF</button>
+<button onclick="sendWA()">Kirim WhatsApp</button>
+
+<div id="invoice" class="invoice-preview"></div>
+
+<div class="history">
+<h3>📊 Riwayat Invoice</h3>
+<ul id="historyList"></ul>
+</div>
+
+</div>
+
+<script>
+
+let currentInvoiceData = {};
+
+function rupiah(x){
+ return new Intl.NumberFormat("id-ID", {
+  style: "currency",
+  currency: "IDR",
+  minimumFractionDigits: 0
+ }).format(x);
+}
+
+function togglePayment(){
+let method = document.getElementById("payment").value;
+document.getElementById("transferFields").style.display = method === "Transfer" ? "block" : "none";
+}
+
+function generateInvoiceNumber(date){
+let d = new Date(date);
+let y = d.getFullYear();
+let m = String(d.getMonth()+1).padStart(2,'0');
+let day = String(d.getDate()).padStart(2,'0');
+
+let key = `inv_${y}${m}${day}`;
+let count = localStorage.getItem(key) || 0;
+count++;
+localStorage.setItem(key, count);
+
+return `INV-${y}${m}${day}-${String(count).padStart(3,'0')}`;
+}
+
+function addItem(){
+let table = document.getElementById("items");
+let row = table.insertRow();
+row.className="item-row";
+
+row.innerHTML = `
+<td><input type="text" class="name"></td>
+<td><input type="number" class="qty" value="1"></td>
+<td><input type="number" class="price" value="0"></td>
+<td class="total">0</td>`;
+
+let qty = row.querySelector(".qty");
+let price = row.querySelector(".price");
+let total = row.querySelector(".total");
+
+function calc(){ total.innerText = qty.value * price.value; }
+qty.oninput = calc;
+price.oninput = calc;
+calc();
+}
+
+function generateInvoice(){
+let company = document.getElementById("company").value;
+let customer = document.getElementById("customer").value;
+let address = document.getElementById("address").value;
+let date = document.getElementById("date").value;
+
+if(!date){
+ date = new Date().toISOString().split('T')[0];
+ document.getElementById("date").value = date;
+}
+
+if(!invoiceNo.value){
+ invoiceNo.value = generateInvoiceNumber(date);
+}
+
+let invoiceNoVal = invoiceNo.value;
+let payment = paymentSelect.value;
+let bankVal = bank.value;
+let rekVal = rekening.value;
+let atasVal = atasNama.value;
+let statusVal = status.value;
+
+let tax = parseFloat(taxInput.value) || 0;
+let discount = parseFloat(discountInput.value) || 0;
+
+let rows = document.querySelectorAll(".item-row");
+let subtotal = 0;
+let itemsHTML = "";
+
+rows.forEach(row=>{
+let name = row.querySelector(".name").value;
+let qty = row.querySelector(".qty").value;
+let price = row.querySelector(".price").value;
+let total = qty * price;
+subtotal += total;
+
+itemsHTML += `<tr>
+<td>${name}</td>
+<td>${qty}</td>
+<td>${rupiah(price)}</td>
+<td>${rupiah(total)}</td>
+</tr>`;
+});
+
+let taxVal = subtotal * (tax/100);
+let discountVal = subtotal * (discount/100);
+let grand = subtotal + taxVal - discountVal;
+
+let paymentHTML = payment === "Transfer" ?
+`<p>Bank: ${bankVal}<br>Rek: ${rekVal}<br>A/N: ${atasVal}</p>` : `<p>Cash</p>`;
+
+let statusClass = statusVal === "Lunas" ? "status-paid" : "status-unpaid";
+
+invoice.innerHTML = `
+<h2>${company}</h2>
+<p>No: ${invoiceNoVal}</p>
+<p>Tanggal: ${date}</p>
+<p><b>${customer}</b><br>${address}</p>
+
+<table>
+<tr><th>Item</th><th>Qty</th><th>Harga</th><th>Total</th></tr>
+${itemsHTML}
+</table>
+
+<h3 class="right">Subtotal: ${rupiah(subtotal)}</h3>
+<h3 class="right">Pajak: ${rupiah(taxVal)}</h3>
+<h3 class="right">Diskon: ${rupiah(discountVal)}</h3>
+<h2 class="right">TOTAL: ${rupiah(grand)}</h2>
+
+${paymentHTML}
+<p class="${statusClass}">Status: ${statusVal}</p>
+`;
+
+currentInvoiceData = {invoiceNoVal, customer, grand};
+
+let history = JSON.parse(localStorage.getItem("invoiceHistory") || "[]");
+history.push({invoiceNo: invoiceNoVal, customer, grand});
+localStorage.setItem("invoiceHistory", JSON.stringify(history));
+loadHistory();
+}
+
+function downloadPDF(){
+let element = document.getElementById("invoice");
+html2pdf().from(element).save("invoice.pdf");
+}
+
+function sendWA(){
+let phone = document.getElementById("phone").value;
+if(!phone.startsWith("62")){
+ alert("Gunakan format 628xxx");
+ return;
+}
+let d = currentInvoiceData;
+let text = `Invoice ${d.invoiceNoVal}\nCustomer: ${d.customer}\nTotal: ${rupiah(d.grand)}`;
+window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`);
+}
+
+function loadHistory(){
+let history = JSON.parse(localStorage.getItem("invoiceHistory") || "[]");
+historyList.innerHTML = "";
+history.forEach(h=>{
+let li = document.createElement("li");
+li.innerText = `${h.invoiceNo} - ${h.customer} - ${rupiah(h.grand)}`;
+historyList.appendChild(li);
+});
+}
+
+loadHistory();
+addItem();
+togglePayment();
+document.getElementById("date").value = new Date().toISOString().split('T')[0];
+
+</script>
+
+</body>
+</html>
