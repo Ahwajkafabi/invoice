@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>INVOICE TAGIHAN TOKO BETE</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+body { font-family: Arial; background:#f1f2f6; padding:20px }
+.container { max-width:1100px; margin:auto; background:white; padding:20px; border-radius:10px }
+input, textarea, select { width:100%; padding:8px; margin:5px 0 }
+table { width:100%; border-collapse: collapse; margin-top:10px }
+th, td { border:1px solid #ddd; padding:8px }
+th { background:#273c75; color:white }
+button { padding:8px 10px; margin:3px; border:none; color:white; cursor:pointer; border-radius:5px }
+.btn { background:#0984e3 }
+.btn-green { background:#44bd32 }
+.btn-wa { background:#25D366 }
+.btn-red { background:#e84118 }
+.preview { background:white; padding:20px; margin-top:20px }
+.logo { max-height:60px }
+.history-item { cursor:pointer; background:#ecf0f1; padding:5px; margin:3px 0 }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h2>Invoice Tagihan</h2>
+
+<input type="file" id="logoInput">
+<img id="logoPreview" class="logo">
+
+<input id="perusahaan" placeholder="Nama Perusahaan">
+<textarea id="alamatPerusahaan" placeholder="Alamat Perusahaan"></textarea>
+
+<input id="customer" placeholder="Nama Customer">
+<textarea id="alamatCustomer" placeholder="Alamat Customer"></textarea>
+
+<input id="invoiceNo" readonly>
+<input id="tanggal" type="date">
+<input id="jatuhTempo" type="date">
+
+<select id="status">
+<option>Unpaid</option>
+<option>Paid</option>
+</select>
+
+<label>Pajak (%)</label>
+<input id="pajakInput" type="number" value="11">
+
+<label>Diskon (%)</label>
+<input id="diskon" type="number" value="0">
+
+<label>Metode</label>
+<select id="metode" onchange="toggleRekening()">
+<option>Cash</option>
+<option>Transfer</option>
+</select>
+
+<div id="rekeningBox" style="display:none;">
+<input id="bank" placeholder="Bank">
+<input id="rekening" placeholder="No Rekening">
+<input id="atasNama" placeholder="Atas Nama">
+</div>
+
+<table>
+<thead>
+<tr><th>Item</th><th>Qty</th><th>Harga</th><th>Total</th><th></th></tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
+
+<button class="btn" onclick="addRow()">+ Item</button>
+
+<h3>Total: Rp <span id="total">0</span></h3>
+
+<input id="noWA" placeholder="No WhatsApp (628...)">
+
+<button class="btn-green" onclick="generatePDF()">PDF</button>
+<button class="btn-wa" onclick="kirimWA()">WA</button>
+<button class="btn" onclick="saveInvoice()">Simpan</button>
+
+<h3>📊 Riwayat Invoice</h3>
+<div id="history"></div>
+
+<div id="preview" class="preview"></div>
+
+</div>
+
+<script>
+const { jsPDF } = window.jspdf;
+
+// INIT
+window.onload = ()=>{
+let t=new Date().toISOString().split('T')[0];
+tanggal.value=t;
+invoiceNo.value=`INV-${t}`;
+loadHistory();
+}
+
+// ITEM
+function addRow(item={}){
+let tr=document.createElement("tr");
+tr.innerHTML=`
+<td><input value="${item.nama||''}"></td>
+<td><input type="number" value="${item.qty||1}" oninput="hitung()"></td>
+<td><input type="number" value="${item.harga||0}" oninput="hitung()"></td>
+<td class="total">0</td>
+<td><button class="btn-red" onclick="this.parentElement.parentElement.remove();hitung()">X</button></td>`;
+tbody.appendChild(tr);
+}
+
+// TOGGLE
+function toggleRekening(){
+rekeningBox.style.display = metode.value==="Transfer"?"block":"none";
+}
+
+// HITUNG
+function hitung(){
+let subtotal=0;
+
+document.querySelectorAll("#tbody tr").forEach(r=>{
+let q=r.cells[1].children[0].value;
+let h=r.cells[2].children[0].value;
+let t=q*h;
+r.querySelector(".total").innerText=t.toLocaleString("id-ID");
+subtotal+=t;
+});
+
+let pajak=subtotal*(pajakInput.value/100);
+let diskonVal=subtotal*(diskon.value/100);
+let totalVal=subtotal+pajak-diskonVal;
+
+total.innerText=totalVal.toLocaleString("id-ID");
+
+renderPreview(subtotal,pajak,diskonVal,totalVal);
+}
+
+// PREVIEW
+function renderPreview(sub,pajak,diskonVal,totalVal){
+let html=`
+<div style="display:flex; justify-content:space-between;">
+<div>
+${logoPreview.src?`<img src="${logoPreview.src}" class="logo">`:``}
+<h2>${perusahaan.value}</h2>
+<small>${alamatPerusahaan.value}</small>
+</div>
+<div style="text-align:right">
+<h1 style="color:#273c75;">INVOICE</h1>
+<p>No: ${invoiceNo.value}</p>
+<p>Tanggal: ${tanggal.value}</p>
+<p>Jatuh Tempo: ${jatuhTempo.value}</p>
+<p>Status: ${status.value}</p>
+</div>
+</div>
+
+<hr>
+
+<p><b>Kepada:</b><br>${customer.value}<br>${alamatCustomer.value}</p>
+
+<table>
+<tr><th>Item</th><th>Qty</th><th>Harga</th><th>Total</th></tr>
+`;
+
+document.querySelectorAll("#tbody tr").forEach(r=>{
+html+=`<tr>
+<td>${r.cells[0].children[0].value}</td>
+<td>${r.cells[1].children[0].value}</td>
+<td>Rp ${r.cells[2].children[0].value}</td>
+<td>Rp ${r.querySelector(".total").innerText}</td>
+</tr>`;
+});
+
+html+=`</table>
+
+<div style="display:flex; justify-content:flex-end; margin-top:20px;">
+<table style="width:300px;">
+<tr><td>Subtotal</td><td align="right">Rp ${sub.toLocaleString("id-ID")}</td></tr>
+<tr><td>Pajak (${pajakInput.value}%)</td><td align="right">Rp ${pajak.toLocaleString("id-ID")}</td></tr>
+<tr><td>Diskon (${diskon.value}%)</td><td align="right">Rp ${diskonVal.toLocaleString("id-ID")}</td></tr>
+<tr style="font-weight:bold;">
+<td>Total</td><td align="right">Rp ${totalVal.toLocaleString("id-ID")}</td>
+</tr>
+</table>
+</div>
+
+<hr>
+
+<p><b>Metode:</b> ${metode.value}</p>
+`;
+
+if(metode.value==="Transfer"){
+html+=`<p>Bank: ${bank.value}<br>Rek: ${rekening.value}<br>A/N: ${atasNama.value}</p>`;
+}
+
+html+=`<p>Terima kasih 🙏</p>`;
+preview.innerHTML=html;
+}
+
+// SAVE
+function saveInvoice(){
+let items=[];
+document.querySelectorAll("#tbody tr").forEach(r=>{
+items.push({
+nama:r.cells[0].children[0].value,
+qty:r.cells[1].children[0].value,
+harga:r.cells[2].children[0].value
+});
+});
+
+let data={
+invoiceNo:invoiceNo.value,
+customer:customer.value,
+tanggal:tanggal.value,
+jatuhTempo:jatuhTempo.value,
+status:status.value,
+pajak:pajakInput.value,
+diskon:diskon.value,
+metode:metode.value,
+bank:bank.value,
+rekening:rekening.value,
+atasNama:atasNama.value,
+items,
+total:total.innerText
+};
+
+let list=JSON.parse(localStorage.getItem("inv")||"[]");
+list.push(data);
+localStorage.setItem("inv",JSON.stringify(list));
+loadHistory();
+}
+
+// LOAD HISTORY
+function loadHistory(){
+let list=JSON.parse(localStorage.getItem("inv")||"[]");
+history.innerHTML="";
+list.forEach((i,index)=>{
+history.innerHTML+=`<div class="history-item" onclick="loadInvoice(${index})">
+${i.invoiceNo} - ${i.customer} - Rp ${i.total}
+</div>`;
+});
+}
+
+// LOAD DATA
+function loadInvoice(i){
+let d=JSON.parse(localStorage.getItem("inv"))[i];
+
+invoiceNo.value=d.invoiceNo;
+customer.value=d.customer;
+tanggal.value=d.tanggal;
+jatuhTempo.value=d.jatuhTempo;
+status.value=d.status;
+pajakInput.value=d.pajak;
+diskon.value=d.diskon;
+metode.value=d.metode;
+bank.value=d.bank;
+rekening.value=d.rekening;
+atasNama.value=d.atasNama;
+
+toggleRekening();
+
+tbody.innerHTML="";
+d.items.forEach(it=>addRow(it));
+
+hitung();
+}
+
+// PDF
+function generatePDF(){
+html2canvas(preview).then(canvas=>{
+let pdf=new jsPDF();
+pdf.addImage(canvas.toDataURL("image/png"),'PNG',10,10,190,0);
+pdf.save(`${customer.value}-${invoiceNo.value}.pdf`);
+});
+}
+
+// WA FULL FORMAT
+function kirimWA(){
+let subtotal=0;
+let listItem="";
+
+document.querySelectorAll("#tbody tr").forEach(r=>{
+let nama=r.cells[0].children[0].value;
+let qty=r.cells[1].children[0].value;
+let harga=r.cells[2].children[0].value;
+let t=qty*harga;
+subtotal+=t;
+
+listItem+=`• ${nama}\n  ${qty} x Rp ${parseInt(harga).toLocaleString("id-ID")} = Rp ${t.toLocaleString("id-ID")}\n\n`;
+});
+
+let pajak=subtotal*(pajakInput.value/100);
+let diskonVal=subtotal*(diskon.value/100);
+let totalVal=subtotal+pajak-diskonVal;
+
+let text=`*INVOICE*
+
+No: ${invoiceNo.value}
+Tanggal: ${tanggal.value}
+Jatuh Tempo: ${jatuhTempo.value}
+Status: ${status.value}
+
+*Dari:*
+${perusahaan.value}
+
+*Kepada:*
+${customer.value}
+
+-----------------------------
+*Detail Item:*
+${listItem}
+-----------------------------
+Subtotal : Rp ${subtotal.toLocaleString("id-ID")}
+Pajak (${pajakInput.value}%) : Rp ${pajak.toLocaleString("id-ID")}
+Diskon (${diskon.value}%) : Rp ${diskonVal.toLocaleString("id-ID")}
+*TOTAL : Rp ${totalVal.toLocaleString("id-ID")}*
+
+-----------------------------
+*Pembayaran:* ${metode.value}
+`;
+
+if(metode.value==="Transfer"){
+text+=`
+Bank: ${bank.value}
+No Rekening: ${rekening.value}
+Atas Nama: ${atasNama.value}
+`;
+}
+
+text+=`\n-----------------------------\nTerima kasih 🙏`;
+
+window.open(`https://wa.me/${noWA.value}?text=${encodeURIComponent(text)}`);
+}
+
+// LOGO
+logoInput.onchange=e=>{
+let r=new FileReader();
+r.onload=()=>logoPreview.src=r.result;
+r.readAsDataURL(e.target.files[0]);
+}
+
+// INIT
+addRow();
+</script>
+
+</body>
+</html>
