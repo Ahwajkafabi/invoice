@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>INVOICE JASA TOKO BETE</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+<style>
+body{font-family:Arial;background:#eef1f5;padding:20px}
+.container{max-width:900px;margin:auto;background:#fff;padding:25px;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.1)}
+h2{border-bottom:3px solid #000;padding-bottom:10px}
+input,select{width:100%;padding:8px;margin:5px 0}
+button{padding:10px;margin-top:10px;cursor:pointer}
+.table{width:100%;border-collapse:collapse;margin-top:10px}
+.table th,.table td{border:1px solid #ddd;padding:8px}
+.table th{background:#f3f3f3}
+.right{text-align:right;font-weight:bold;font-size:18px;color:#e84118}
+.history{margin-top:20px;background:#fafafa;padding:10px}
+#logoPreview,#pdfLogo{max-height:80px}
+#invoice{background:#fff;width:800px;position:absolute;left:-9999px;top:0;}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+<h2>Invoice Jasa</h2>
+
+<input type="file" id="logoInput">
+<img id="logoPreview">
+
+<input id="company" placeholder="Nama Perusahaan">
+<input id="address" placeholder="Alamat">
+
+<input id="invoiceNo" readonly placeholder="No Invoice">
+<input type="date" id="date">
+
+<input id="customer" placeholder="Kepada">
+<input id="phone" placeholder="No WA (628xxx)">
+
+<table class="table" id="itemTable">
+<tr><th>Deskripsi</th><th>Harga</th><th>Qty</th><th>Total</th><th></th></tr>
+</table>
+
+<button onclick="addRow()">+ Item</button>
+
+<h3>Subtotal: Rp <span id="grandTotal">0</span></h3>
+
+<input type="number" id="discount" value="0" oninput="calc()" placeholder="Diskon %">
+<input type="number" id="tax" value="0" oninput="calc()" placeholder="Pajak %">
+
+<h2 class="right">Total Akhir: Rp <span id="finalTotal">0</span></h2>
+
+<select id="payment" onchange="togglePayment()">
+<option>Cash</option>
+<option>Transfer</option>
+</select>
+
+<div id="transferBox" style="display:none">
+<input id="bank" placeholder="Bank">
+<input id="receiver" placeholder="Nama">
+<input id="rekening" placeholder="Rekening">
+</div>
+
+<button onclick="saveInvoice()">Simpan</button>
+<button onclick="downloadPDF()">Download PDF</button>
+<button onclick="sendWA()">Kirim WhatsApp</button>
+
+<div class="history">
+<h3>Riwayat Invoice</h3>
+<ul id="historyList"></ul>
+</div>
+
+</div>
+
+<!-- PDF TEMPLATE -->
+<div id="invoice">
+<img id="pdfLogo"><br>
+<b id="pdfCompany"></b><br>
+<span id="pdfAddress"></span>
+
+<h2>INVOICE</h2>
+
+<p>No: <span id="pdfNo"></span><br>
+Tanggal: <span id="pdfDate"></span></p>
+
+<p>Kepada: <b id="pdfCustomer"></b></p>
+
+<table class="table">
+<thead>
+<tr><th>Deskripsi</th><th>Harga</th><th>Qty</th><th>Total</th></tr>
+</thead>
+<tbody id="pdfItems"></tbody>
+</table>
+
+<p>Subtotal: Rp <span id="pdfSubtotal"></span></p>
+<p>Diskon: <span id="pdfDiscount"></span>%</p>
+<p>Pajak: <span id="pdfTax"></span>%</p>
+
+<h3 class="right">Total Akhir: Rp <span id="pdfTotal"></span></h3>
+
+<p id="pdfPayment"></p>
+</div>
+
+<script>
+let total=0;
+
+function rupiah(x){
+ return new Intl.NumberFormat("id-ID").format(x);
+}
+
+// LOGO
+logoInput.onchange=e=>{
+let r=new FileReader();
+r.onload=()=>{
+ logoPreview.src=r.result;
+ pdfLogo.src=r.result;
+};
+r.readAsDataURL(e.target.files[0]);
+};
+
+// INVOICE NUMBER
+date.onchange=()=>{
+let d=new Date(date.value);
+let key=`inv_${d.getFullYear()}${d.getMonth()+1}${d.getDate()}`;
+let count=localStorage.getItem(key)||0;
+count++;
+localStorage.setItem(key,count);
+
+invoiceNo.value=`INV-${d.getFullYear()}${(d.getMonth()+1).toString().padStart(2,'0')}${d.getDate().toString().padStart(2,'0')}-${count}`;
+};
+
+function togglePayment(){
+transferBox.style.display=payment.value=="Transfer"?"block":"none";
+}
+
+function addRow(){
+let row=itemTable.insertRow();
+row.innerHTML=`
+<td><input class="desc" oninput="calc()"></td>
+<td><input type="number" class="price" value="0" oninput="calc()"></td>
+<td><input type="number" class="qty" value="1" oninput="calc()"></td>
+<td class="rowTotal">0</td>
+<td><button onclick="this.parentElement.parentElement.remove();calc()">X</button></td>`;
+calc();
+}
+
+function calc(){
+total=0;
+document.querySelectorAll("#itemTable tr").forEach((r,i)=>{
+if(i==0)return;
+let p=parseFloat(r.querySelector(".price").value)||0;
+let q=parseFloat(r.querySelector(".qty").value)||0;
+let t=p*q;
+r.querySelector(".rowTotal").innerText=rupiah(t);
+total+=t;
+});
+
+grandTotal.innerText=rupiah(total);
+
+let d=parseFloat(discount.value)||0;
+let t=parseFloat(tax.value)||0;
+
+let after=total-(total*d/100);
+let final=after+(after*t/100);
+
+finalTotal.innerText=rupiah(Math.round(final));
+}
+
+function previewCurrent(){
+pdfCompany.innerText=company.value;
+pdfAddress.innerText=address.value;
+pdfNo.innerText=invoiceNo.value;
+pdfDate.innerText=date.value;
+pdfCustomer.innerText=customer.value;
+
+let items="";
+document.querySelectorAll("#itemTable tr").forEach((r,i)=>{
+if(i==0)return;
+items+=`<tr>
+<td>${r.querySelector(".desc").value}</td>
+<td>${rupiah(r.querySelector(".price").value)}</td>
+<td>${r.querySelector(".qty").value}</td>
+<td>${r.querySelector(".rowTotal").innerText}</td>
+</tr>`;
+});
+pdfItems.innerHTML=items;
+
+let d=parseFloat(discount.value)||0;
+let t=parseFloat(tax.value)||0;
+let after=total-(total*d/100);
+let final=after+(after*t/100);
+
+pdfSubtotal.innerText=rupiah(total);
+pdfDiscount.innerText=d;
+pdfTax.innerText=t;
+pdfTotal.innerText=rupiah(Math.round(final));
+
+let pay=payment.value;
+if(pay=="Transfer"){
+pay+=` (${bank.value} - ${receiver.value} - ${rekening.value})`;
+}
+pdfPayment.innerText="Metode: "+pay;
+}
+
+function downloadPDF(){
+if(!customer.value){
+ alert("Isi customer dulu");
+ return;
+}
+previewCurrent();
+html2pdf().set({margin:10,html2canvas:{scale:2},jsPDF:{unit:"mm",format:"a4"}})
+.from(document.getElementById("invoice")).save();
+}
+
+function saveInvoice(){
+let h=JSON.parse(localStorage.getItem("inv")||"[]");
+h.push({no:invoiceNo.value,customer:customer.value,final:finalTotal.innerText});
+localStorage.setItem("inv",JSON.stringify(h));
+loadHistory();
+}
+
+function loadHistory(){
+let h=JSON.parse(localStorage.getItem("inv")||"[]");
+historyList.innerHTML=h.map((x,i)=>`<li>${x.no} - ${x.customer} - Rp ${x.final}</li>`).join("");
+}
+
+function sendWA(){
+let phone=document.getElementById("phone").value;
+if(!phone.startsWith("62")){
+ alert("Gunakan format 628xxx");
+ return;
+}
+let text=`INVOICE\nNo: ${invoiceNo.value}\nCustomer: ${customer.value}\nTotal: ${finalTotal.innerText}`;
+window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`);
+}
+
+loadHistory();
+addRow();
+calc();
+document.getElementById("date").value=new Date().toISOString().split('T')[0];
+
+</script>
+
+</body>
+</html>
